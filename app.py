@@ -30,6 +30,7 @@ def approx_tokens(txt: str) -> int:
     return max(1, math.ceil(len(txt) / 4))
 
 def make_docx_bytes(title: str, body_md: str) -> bytes:
+    """Zet eenvoudige tekst/markdown om naar een .docx-bestand (basisopmaak)."""
     doc = Document()
     _ = doc.add_heading(title, level=1)
     for line in body_md.split("\n"):
@@ -42,6 +43,7 @@ def make_docx_bytes(title: str, body_md: str) -> bytes:
     return bio.read()
 
 def get_openai_api_key() -> str | None:
+    """Zoek API-key eerst in Streamlit secrets, anders in omgevingsvariabelen."""
     key = None
     try:
         if 'OPENAI_API_KEY' in st.secrets:
@@ -67,7 +69,8 @@ def genereer_ai_advies(software, knelpunten, weging, toelichting, voorkeur, mode
     )
     user_msg = f"""
 Kantoorsoftware: {software}
-Knelpunten en weging:\n{beschrijving}
+Knelpunten en weging:
+{beschrijving}
 Toelichting: {toelichting or 'n.v.t.'}
 Voorkeursaanpak: {voorkeur}
 
@@ -87,7 +90,7 @@ Maak een voorstel met:
         advies_stub = (
             "⚠️ Geen OpenAI-API geconfigureerd. Hieronder de samengestelde opdracht die naar het model wordt gestuurd.\n\n"
             f"**Systeemrol**:\n{system_msg}\n\n**Gebruikersinvoer**:\n{user_msg.strip()}\n\n"
-            "👉 Stel OPENAI_API_KEY in via .streamlit/secrets.toml of als omgevingsvariabel." 
+            "👉 Stel OPENAI_API_KEY in via .streamlit/secrets.toml of als omgevingsvariabele."
         )
         return advies_stub
 
@@ -114,18 +117,22 @@ menu = st.sidebar.radio("Navigatie", [
     "Proof-of-Concepts",
     "Feedback",
     "Handleiding",
-    "Chatbot",
 ])
 
 with st.sidebar.expander("Model & instellingen", expanded=False):
     st.caption("Deze instellingen gelden voor AI-advies (indien API-key ingesteld).")
     model = st.selectbox("Model", ["gpt-4o-mini", "gpt-4o"], index=0)
     temperature = st.slider("Creativiteit (temperature)", 0.0, 1.0, 0.4, 0.1)
+    # bewaar in session_state voor gebruik op andere pagina's
     st.session_state['model'] = model
     st.session_state['temperature'] = temperature
 
 with st.sidebar.expander("AI-instellingen", expanded=True):
-    ai_enabled = st.checkbox("AI inschakelen (OpenAI)", value=True, help="Schakel uit om gratis te testen zonder API-verbruik.")
+    ai_enabled = st.checkbox(
+        "AI inschakelen (OpenAI)",
+        value=True,
+        help="Schakel uit om gratis te testen zonder API-verbruik. Toont dan de samengestelde prompt i.p.v. AI-tekst."
+    )
     st.session_state['ai_enabled'] = ai_enabled
 
 with st.sidebar.expander("Systeemcheck", expanded=True):
@@ -143,16 +150,18 @@ if st.sidebar.button("🔄 Reset invoer & voorstel"):
     st.sidebar.success("Invoer gewist. Ga naar Dashboard om opnieuw te starten.")
 
 # ================= Pagina's =================
+# --- Pagina: Dashboard ---
 if menu == "Dashboard":
     st.title("AI-Transitie Toolkit voor Administratiekantoren")
     st.write("Doorloop een traject om AI-oplossingen binnen uw kantoor te integreren.")
 
     col1, col2 = st.columns(2)
+
     with col1:
         st.subheader("Huidige Software en Knelpunten")
         software = st.selectbox("Selecteer software", ["Exact", "Nextens", "SnelStart", "AFAS", "Twinfield", "Multivers", "Minox", "Anders"])
         if software == "Anders":
-            software = st.text_input("Voer andere software in")
+            software = st.text_input("Voer de naam in van de gebruikte software")
 
         alle_knelpunten = [
             "Handmatig werk",
@@ -173,6 +182,7 @@ if menu == "Dashboard":
         for k in knelpunten:
             probleemweging[k] = st.slider(f"Weging voor: {k}", 1, 5, probleemweging[k])
 
+        # Validaties
         valid = True
         if len(knelpunten) == 0:
             st.warning("Selecteer minstens één knelpunt.")
@@ -194,18 +204,27 @@ if menu == "Dashboard":
 
     with col2:
         st.subheader("AI-Oplossingen en Voorbeelden")
-        st.markdown("""
-        - **API-koppelingen** voor geautomatiseerde data-uitwisseling
-        - **ChatGPT** voor diagnose en advies op maat
-        - **OCR & RPA** voor documentverwerking en automatisering
-        - **Zapier of Make** voor workflow-automatisering
-        """)
+        st.markdown(
+            """
+            - **API-koppelingen** voor geautomatiseerde data-uitwisseling
+            - **ChatGPT** voor diagnose en advies op maat
+            - **OCR & RPA** voor documentverwerking en automatisering
+            - **Zapier of Make** voor workflow-automatisering
+            """
+        )
         st.subheader("Invoerstatus")
         st.write("Software:", st.session_state.get('software', '—'))
         st.write("Knelpunten:", ", ".join(st.session_state.get('knelpunten', [])) or "—")
         st.write("Toelichting:", st.session_state.get('toelichting', '—') or "—")
-        st.write("Weging:", st.session_state.get('weging', {}) or "—")
+        # Leesbare weergave van de weging
+        weging_dict = st.session_state.get('weging', {})
+        if weging_dict:
+            for k, v in weging_dict.items():
+                st.write(f"{k}: {v}")
+        else:
+            st.write("Weging: —")
 
+# --- Pagina: Keuzeadvies ---
 elif menu == "Keuzeadvies":
     st.title("Keuzeadvies voor jouw AI-transitie")
     st.write("Kies de aanpak die het beste past bij jouw situatie.")
@@ -220,6 +239,7 @@ elif menu == "Keuzeadvies":
     else:
         st.info("Combinatie: zelf grip + hulp bij technische of complexe onderdelen.")
 
+    # Validatie vóór genereren
     missing = []
     if not st.session_state.get('software'):
         missing.append("software")
@@ -228,11 +248,12 @@ elif menu == "Keuzeadvies":
     if missing:
         st.warning("Ontbrekende invoer: " + ", ".join(missing) + ". Ga terug naar het Dashboard.")
 
-    if st.button("Genereer Diagnose & Transitievoorstel (AI)"):
+    if st.button("Genereer Diagnose & Transitievoorstel (AI/stub)"):
         if missing:
             st.error("Kan geen advies genereren; vul eerst de ontbrekende velden in op het Dashboard.")
         else:
-            if st.session_state.get('ai_enabled', True):
+            use_ai = st.session_state.get('ai_enabled', True) and bool(get_openai_api_key())
+            if use_ai:
                 advies_tekst = genereer_ai_advies(
                     software=st.session_state.get('software'),
                     knelpunten=st.session_state.get('knelpunten', []),
@@ -243,13 +264,18 @@ elif menu == "Keuzeadvies":
                     temperature=st.session_state.get('temperature', 0.4),
                 )
             else:
+                # Gratis/stub modus: toon de samengestelde opdracht i.p.v. AI-output
+                _kn = st.session_state.get('knelpunten', [])
+                _wg = st.session_state.get('weging', {})
+                beschrijving = "\n".join([f"- {k} (weging {_wg.get(k, '—')})" for k in _kn]) if _kn else "- (geen geselecteerde knelpunten)"
+
                 advies_tekst = (
-                    "🔒 AI staat uit of er is geen API‑key.\n\n"
-                    "Samengestelde opdracht:\n"
-                    f"Software: {st.session_state.get('software','—')}\n"
-                    f"Knelpunten: {st.session_state.get('knelpunten','—')}\n"
-                    f"Toelichting: {st.session_state.get('toelichting','—')}\n"
-                    f"Voorkeursaanpak: {st.session_state.get('voorkeur','Hybride')}"
+                    "🔒 AI staat uit of er is geen API-key.\n\n"
+                    f"**Software:** {st.session_state.get('software','—')}\n"
+                    f"**Knelpunten en weging:**\n{beschrijving}\n"
+                    f"**Toelichting:** {st.session_state.get('toelichting','—')}\n"
+                    f"**Voorkeursaanpak:** {st.session_state.get('voorkeur','Hybride')}\n\n"
+                    "Dit is de samengestelde opdracht (prompt) die normaal naar het model zou gaan."
                 )
 
             st.session_state['advies_tekst'] = advies_tekst
@@ -263,11 +289,21 @@ elif menu == "Keuzeadvies":
         titel = f"AI-Transitie Voorstel - {st.session_state.get('software','n.v.t.')} - {st.session_state.get('advies_timestamp','')}"
 
         md_bytes = st.session_state['advies_tekst'].encode('utf-8')
-        st.download_button("Download als Markdown (.md)", data=md_bytes, file_name=f"{titel}.md", mime="text/markdown")
+        st.download_button(
+            label="Download als Markdown (.md)",
+            data=md_bytes,
+            file_name=f"{titel}.md",
+            mime="text/markdown",
+        )
 
         if _DOCX_AVAILABLE:
             docx_bytes = make_docx_bytes(titel, st.session_state['advies_tekst'])
-            st.download_button("Download als Word (.docx)", data=docx_bytes, file_name=f"{titel}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+            st.download_button(
+                label="Download als Word (.docx)",
+                data=docx_bytes,
+                file_name=f"{titel}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
         else:
             st.info("Voor .docx-export installeer: `pip install python-docx`. Daarna de app herstarten.")
 
@@ -285,56 +321,68 @@ elif menu == "Keuzeadvies":
         st.write(f"Geschatte output tokens: ~{out_tok}")
         st.caption("Let op: dit is een ruwe schatting. Werkelijke aantallen kunnen afwijken.")
 
+# --- Pagina: Transitieplanner ---
 elif menu == "Transitieplanner":
     st.title("Transitieplanner")
     st.info("Deze sectie wordt in de volgende versie uitgewerkt.")
 
+# --- Pagina: Proof-of-Concepts ---
 elif menu == "Proof-of-Concepts":
     st.title("Proof-of-Concepts")
     st.info("Hier komen uitgewerkte voorbeelden met instructies.")
 
+# --- Pagina: Feedback ---
 elif menu == "Feedback":
     st.title("Feedback")
     feedback = st.text_area("Wat vond je van deze toolkit?")
     if st.button("Verzenden"):
         st.success("Bedankt voor je feedback!")
 
-elif menu == "Chatbot":
-    st.title("Chatbot – Project Kantoor in AI-Transitie")
+# --- Pagina: Handleiding ---
+elif menu == "Handleiding":
+    st.title("Handleiding voor installatie en gebruik")
+    st.markdown(r"""
+        ### 1. Waar plaats je de bestanden?
+        Plaats de bestanden **niet in C:\\Python313** maar in een eigen map, bijvoorbeeld:
+        ```
+        C:\\Users\\<jouwnaam>\\AI-Toolkit\\
+        ```
 
-    if "chat_history" not in st.session_state:
-        st.session_state["chat_history"] = []
+        ### 2. Virtuele omgeving maken (aanbevolen)
+        ```powershell
+        cd C:\\Users\\<jouwnaam>\\AI-Toolkit
+        python -m venv venv
+        venv\\Scripts\\activate
+        ```
 
-    for msg in st.session_state["chat_history"]:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+        ### 3. Dependencies installeren
+        ```powershell
+        pip install streamlit openai python-docx
+        ```
 
-    prompt = st.chat_input("Stel je vraag over software, routines of AI‑kansen…")
-    if prompt:
-        st.session_state["chat_history"].append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
+        ### 4. API-sleutel instellen
+        **Optie A (snel, alleen huidig venster):**
+        ```powershell
+        $env:OPENAI_API_KEY = "sk-...jouw_key..."
+        ```
+        **Optie B (permanent voor jouw account):**
+        ```powershell
+        setx OPENAI_API_KEY "sk-...jouw_key..."
+        # Open hierna een nieuw PowerShell-venster
+        ```
+        **Optie C (aanbevolen voor meerdere gebruikers / Cloud):**
+        Maak een bestand `.streamlit/secrets.toml` met:
+        ```toml
+        OPENAI_API_KEY = "sk-...jouw_key..."
+        ```
 
-        use_ai = st.session_state.get("ai_enabled", True) and bool(get_openai_api_key()) and _OPENAI_AVAILABLE
-        if use_ai:
-            system_msg = (
-                "Je bent een nuchtere, praktische AI-coach voor administratie- en belastingadvieskantoren. "
-                "Geef korte, concrete antwoorden in helder Nederlands; vermijd jargon; noem waar zinvol stappen/voorbeelden. "
-                "Houd rekening met software als Exact, Nextens, SnelStart, AFAS, Twinfield, Multivers, Minox."
-            )
-            try:
-                client = OpenAI(api_key=get_openai_api_key())
-                ctx = st.session_state["chat_history"][-8:]
-                resp = client.chat.completions.create(
-                    model=st.session_state.get("model", "gpt-4o-mini"),
-                    temperature=st.session_state.get("temperature", 0.4),
-                    messages=[{"role": "system", "content": system_msg}] + ctx,
-                    max_tokens=600,
-                )
-                answer = resp.choices[0].message.content.strip()
-            except Exception as e:
-                answer = f"❌ Fout bij genereren van antwoord: {e}"
-        else:
-            answer = (
-                "🔒 AI staat uit of er is geen API‑key.\n\n"
-                "Ik kan je vraag wel structureren. Probeer bijvoorbeeld:\n
+        ### 5. Start de applicatie
+        ```powershell
+        streamlit run app.py
+        ```
+
+        #### Streamlit Cloud
+        - Push je project naar GitHub
+        - Deploy **New app** → kies `app.py`
+        - Voeg in **Secrets** de sleutel toe: `OPENAI_API_KEY`
+        """)
