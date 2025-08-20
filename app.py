@@ -44,15 +44,10 @@ def make_docx_bytes(title: str, body_md: str) -> bytes:
 
 def get_openai_api_key() -> str | None:
     """Zoek API-key eerst in Streamlit secrets, anders in omgevingsvariabelen."""
-    key = None
     try:
-        if 'OPENAI_API_KEY' in st.secrets:
-            key = st.secrets['OPENAI_API_KEY']
+        return st.secrets['OPENAI_API_KEY'] if 'OPENAI_API_KEY' in st.secrets else os.environ.get("OPENAI_API_KEY")
     except Exception:
-        pass
-    if not key:
-        key = os.environ.get("OPENAI_API_KEY")
-    return key
+        return os.environ.get("OPENAI_API_KEY")
 
 def status_badge(ok: bool) -> str:
     return "✅" if ok else "⚠️"
@@ -69,7 +64,8 @@ def genereer_ai_advies(software, knelpunten, weging, toelichting, voorkeur, mode
     )
     user_msg = f"""
 Kantoorsoftware: {software}
-Knelpunten en weging:\n{beschrijving}
+Knelpunten en weging:
+{beschrijving}
 Toelichting: {toelichting or 'n.v.t.'}
 Voorkeursaanpak: {voorkeur}
 
@@ -122,14 +118,23 @@ with st.sidebar.expander("Model & instellingen", expanded=False):
     st.caption("Deze instellingen gelden voor AI-advies (indien API-key ingesteld).")
     model = st.selectbox("Model", ["gpt-4o-mini", "gpt-4o"], index=0)
     temperature = st.slider("Creativiteit (temperature)", 0.0, 1.0, 0.4, 0.1)
-    # bewaar in session_state voor gebruik op andere pagina's
+    # bewaar voor andere pagina's
     st.session_state['model'] = model
     st.session_state['temperature'] = temperature
+
+with st.sidebar.expander("AI-instellingen", expanded=True):
+    ai_enabled = st.checkbox(
+        "AI inschakelen (OpenAI)",
+        value=True,
+        help="Schakel uit om gratis te testen zonder API-verbruik. In dat geval tonen we de samengestelde prompt."
+    )
+    st.session_state['ai_enabled'] = ai_enabled
 
 with st.sidebar.expander("Systeemcheck", expanded=True):
     st.write("OpenAI lib:", status_badge(_OPENAI_AVAILABLE))
     st.write("python-docx:", status_badge(_DOCX_AVAILABLE))
     st.write("API-key:", status_badge(bool(get_openai_api_key())))
+    st.write("AI ingeschakeld:", "✅" if st.session_state.get('ai_enabled', True) else "⛔")
     st.caption(f"Python {platform.python_version()} | Platform: {platform.system()}")
 
 # Resetknop
@@ -149,11 +154,7 @@ if menu == "Dashboard":
 
     with col1:
         st.subheader("Huidige Software en Knelpunten")
-        # Uitgebreide softwarelijst + Anders -> tekstveld
-        software = st.selectbox(
-            "Selecteer software",
-            ["Exact", "Nextens", "SnelStart", "AFAS", "Twinfield", "Multivers", "Minox", "Anders"]
-        )
+        software = st.selectbox("Selecteer software", ["Exact", "Nextens", "SnelStart", "AFAS", "Twinfield", "Multivers", "Minox", "Anders"])
         if software == "Anders":
             software = st.text_input("Voer de naam in van de gebruikte software")
 
@@ -172,29 +173,14 @@ if menu == "Dashboard":
         toelichting = st.text_area("Toelichting of andere knelpunten")
 
         st.subheader("Weging van de problemen (1 = klein, 5 = groot)")
-        probleemweging = {k: 3 for k in knelpunten}
-        for k in knelpunten:
-            probleemweging[k] = st.slider(f"Weging voor: {k}", 1, 5, probleemweging[k])
-
-        # Validaties
-        valid = True
-        if len(knelpunten) == 0:
-            st.warning("Selecteer minstens één knelpunt.")
-            valid = False
-        for k in knelpunten:
-            if probleemweging.get(k) is None:
-                st.warning(f"Weging ontbreekt voor: {k}")
-                valid = False
+        probleemweging = {k: st.slider(f"Weging voor: {k}", 1, 5, 3) for k in knelpunten}
 
         if st.button("Advies voorbereiden"):
-            if not valid:
-                st.error("Corrigeer de invoer voordat je doorgaat.")
-            else:
-                st.session_state['software'] = software
-                st.session_state['knelpunten'] = knelpunten
-                st.session_state['toelichting'] = toelichting
-                st.session_state['weging'] = probleemweging
-                st.success("Invoer opgeslagen. Ga naar 'Keuzeadvies' om het voorstel te genereren.")
+            st.session_state['software'] = software
+            st.session_state['knelpunten'] = knelpunten
+            st.session_state['toelichting'] = toelichting
+            st.session_state['weging'] = probleemweging
+            st.success("Invoer opgeslagen. Ga naar 'Keuzeadvies' om het voorstel te genereren.")
 
     with col2:
         st.subheader("AI-Oplossingen en Voorbeelden")
@@ -206,11 +192,11 @@ if menu == "Dashboard":
             - **Zapier of Make** voor workflow-automatisering
             """
         )
+
         st.subheader("Invoerstatus")
         st.write("Software:", st.session_state.get('software', '—'))
         st.write("Knelpunten:", ", ".join(st.session_state.get('knelpunten', [])) or "—")
         st.write("Toelichting:", st.session_state.get('toelichting', '—') or "—")
-        # Leesbare weergave van de weging i.p.v. dict
         weging_dict = st.session_state.get('weging', {})
         if weging_dict:
             for k, v in weging_dict.items():
@@ -246,15 +232,31 @@ elif menu == "Keuzeadvies":
         if missing:
             st.error("Kan geen advies genereren; vul eerst de ontbrekende velden in op het Dashboard.")
         else:
-            advies_tekst = genereer_ai_advies(
-                software=st.session_state.get('software'),
-                knelpunten=st.session_state.get('knelpunten', []),
-                weging=st.session_state.get('weging', {}),
-                toelichting=st.session_state.get('toelichting', ''),
-                voorkeur=st.session_state.get('voorkeur', 'Hybride'),
-                model=st.session_state.get('model', 'gpt-4o-mini'),
-                temperature=st.session_state.get('temperature', 0.4),
-            )
+            use_ai = st.session_state.get('ai_enabled', True) and bool(get_openai_api_key())
+            if use_ai:
+                advies_tekst = genereer_ai_advies(
+                    software=st.session_state.get('software'),
+                    knelpunten=st.session_state.get('knelpunten', []),
+                    weging=st.session_state.get('weging', {}),
+                    toelichting=st.session_state.get('toelichting', ''),
+                    voorkeur=st.session_state.get('voorkeur', 'Hybride'),
+                    model=st.session_state.get('model', 'gpt-4o-mini'),
+                    temperature=st.session_state.get('temperature', 0.4),
+                )
+            else:
+                # Gratis/stub modus: toon de samengestelde opdracht i.p.v. AI-output
+                _kn = st.session_state.get('knelpunten', [])
+                _wg = st.session_state.get('weging', {})
+                beschrijving = "\n".join([f"- {k} (weging {_wg.get(k, '—')})" for k in _kn]) if _kn else "- (geen geselecteerde knelpunten)"
+                advies_tekst = (
+                    "🔒 AI staat uit of er is geen API-key.\n\n"
+                    f"**Software:** {st.session_state.get('software','—')}\n"
+                    f"**Knelpunten en weging:**\n{beschrijving}\n"
+                    f"**Toelichting:** {st.session_state.get('toelichting','—')}\n"
+                    f"**Voorkeursaanpak:** {st.session_state.get('voorkeur','Hybride')}\n\n"
+                    "Dit is de samengestelde opdracht (prompt) die normaal naar het model zou gaan."
+                )
+
             st.session_state['advies_tekst'] = advies_tekst
             st.session_state['advies_timestamp'] = datetime.now().strftime("%Y-%m-%d %H:%M")
             st.subheader("Diagnose & Voorstel voor jouw AI-transitie")
@@ -321,16 +323,16 @@ elif menu == "Handleiding":
     st.markdown(
         """
         ### 1. Waar plaats je de bestanden?
-        Plaats de bestanden **niet in C:\\Python313** maar in een eigen map, bijvoorbeeld:
+        Plaats de bestanden **niet in C:\Python313** maar in een eigen map, bijvoorbeeld:
         ```
-        C:\\Users\\<jouwnaam>\\AI-Toolkit\\
+        C:\Users\<jouwnaam>\AI-Toolkit\
         ```
 
         ### 2. Virtuele omgeving maken (aanbevolen)
         ```powershell
-        cd C:\\Users\\<jouwnaam>\\AI-Toolkit
+        cd C:\Users\<jouwnaam>\AI-Toolkit
         python -m venv venv
-        venv\\Scripts\\activate
+        venv\Scripts\activate
         ```
 
         ### 3. Dependencies installeren
