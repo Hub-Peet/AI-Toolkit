@@ -1,0 +1,18 @@
+Folder PATH listing
+Volume serial number is 6ADF-A209
+C:.
+|   1e Chatgeschiedenis_ChatGPT_04-07-2025.docx
+|   Hallo Cor (Kroes)-E-mail 04-07-2025.docx
+|   Senne en Bo op vakantie op Mallorca 04-07-2025.jpeg
+|   Starten met je digitale assistent.docx
+|   Starten_met_je_digitale_assistent_Cor.docx
+|   Strategische verkenning - inzet van AI binnen een traditioneel administratiekantoor.docx
+|   structuur.txt
+|   Visuele Schets_Mockup.png
+|   Voorbeeldvraag_Exact_AI-assistent.docx
+|   
+\---AI-Toolkit
+        ai_transitie_toolkit_prototype.py
+        ai_transitie_toolkit_v2.py
+        streamlit_prototype.py
+        
