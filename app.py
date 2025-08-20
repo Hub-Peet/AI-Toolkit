@@ -149,7 +149,13 @@ if menu == "Dashboard":
 
     with col1:
         st.subheader("Huidige Software en Knelpunten")
-        software = st.selectbox("Selecteer software", ["Exact", "Nextens", "SnelStart", "Anders"])
+        # Uitgebreide softwarelijst + Anders -> tekstveld
+        software = st.selectbox(
+            "Selecteer software",
+            ["Exact", "Nextens", "SnelStart", "AFAS", "Twinfield", "Multivers", "Minox", "Anders"]
+        )
+        if software == "Anders":
+            software = st.text_input("Voer de naam in van de gebruikte software")
 
         alle_knelpunten = [
             "Handmatig werk",
@@ -204,7 +210,13 @@ if menu == "Dashboard":
         st.write("Software:", st.session_state.get('software', '—'))
         st.write("Knelpunten:", ", ".join(st.session_state.get('knelpunten', [])) or "—")
         st.write("Toelichting:", st.session_state.get('toelichting', '—') or "—")
-        st.write("Weging:", st.session_state.get('weging', {}) or "—")
+        # Leesbare weergave van de weging i.p.v. dict
+        weging_dict = st.session_state.get('weging', {})
+        if weging_dict:
+            for k, v in weging_dict.items():
+                st.write(f"{k}: {v}")
+        else:
+            st.write("Weging: —")
 
 # --- Pagina: Keuzeadvies ---
 elif menu == "Keuzeadvies":
