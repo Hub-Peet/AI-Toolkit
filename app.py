@@ -43,7 +43,6 @@ def make_docx_bytes(title: str, body_md: str) -> bytes:
     return bio.read()
 
 def get_openai_api_key() -> str | None:
-    """Zoek API-key eerst in Streamlit secrets, anders in omgevingsvariabelen."""
     key = None
     try:
         if 'OPENAI_API_KEY' in st.secrets:
@@ -69,8 +68,7 @@ def genereer_ai_advies(software, knelpunten, weging, toelichting, voorkeur, mode
     )
     user_msg = f"""
 Kantoorsoftware: {software}
-Knelpunten en weging:
-{beschrijving}
+Knelpunten en weging:\n{beschrijving}
 Toelichting: {toelichting or 'n.v.t.'}
 Voorkeursaanpak: {voorkeur}
 
@@ -117,22 +115,18 @@ menu = st.sidebar.radio("Navigatie", [
     "Proof-of-Concepts",
     "Feedback",
     "Handleiding",
+    "Chatbot",  # nieuw
 ])
 
 with st.sidebar.expander("Model & instellingen", expanded=False):
     st.caption("Deze instellingen gelden voor AI-advies (indien API-key ingesteld).")
     model = st.selectbox("Model", ["gpt-4o-mini", "gpt-4o"], index=0)
     temperature = st.slider("Creativiteit (temperature)", 0.0, 1.0, 0.4, 0.1)
-    # bewaar in session_state voor gebruik op andere pagina's
     st.session_state['model'] = model
     st.session_state['temperature'] = temperature
 
 with st.sidebar.expander("AI-instellingen", expanded=True):
-    ai_enabled = st.checkbox(
-        "AI inschakelen (OpenAI)",
-        value=True,
-        help="Schakel uit om gratis te testen zonder API-verbruik. Toont dan de samengestelde prompt i.p.v. AI-tekst."
-    )
+    ai_enabled = st.checkbox("AI inschakelen (OpenAI)", value=True, help="Schakel uit om gratis te testen zonder API-verbruik. Toont dan de samengestelde prompt i.p.v. AI-tekst.")
     st.session_state['ai_enabled'] = ai_enabled
 
 with st.sidebar.expander("Systeemcheck", expanded=True):
@@ -150,7 +144,10 @@ if st.sidebar.button("🔄 Reset invoer & voorstel"):
     st.sidebar.success("Invoer gewist. Ga naar Dashboard om opnieuw te starten.")
 
 # ================= Pagina's =================
-# --- Pagina: Dashboard ---
+# Chat state initialiseren
+if "chat_history" not in st.session_state:
+    st.session_state["chat_history"] = []  # lijst met {"role": "user"|"assistant", "content": str}
+
 if menu == "Dashboard":
     st.title("AI-Transitie Toolkit voor Administratiekantoren")
     st.write("Doorloop een traject om AI-oplossingen binnen uw kantoor te integreren.")
@@ -161,7 +158,9 @@ if menu == "Dashboard":
         st.subheader("Huidige Software en Knelpunten")
         software = st.selectbox("Selecteer software", ["Exact", "Nextens", "SnelStart", "AFAS", "Twinfield", "Multivers", "Minox", "Anders"])
         if software == "Anders":
-            software = st.text_input("Voer de naam in van de gebruikte software")
+            extra = st.text_input("Andere software (specificeer)")
+            if extra:
+                software = extra
 
         alle_knelpunten = [
             "Handmatig werk",
@@ -182,7 +181,6 @@ if menu == "Dashboard":
         for k in knelpunten:
             probleemweging[k] = st.slider(f"Weging voor: {k}", 1, 5, probleemweging[k])
 
-        # Validaties
         valid = True
         if len(knelpunten) == 0:
             st.warning("Selecteer minstens één knelpunt.")
@@ -204,27 +202,24 @@ if menu == "Dashboard":
 
     with col2:
         st.subheader("AI-Oplossingen en Voorbeelden")
-        st.markdown(
-            """
+        st.markdown("""
             - **API-koppelingen** voor geautomatiseerde data-uitwisseling
             - **ChatGPT** voor diagnose en advies op maat
             - **OCR & RPA** voor documentverwerking en automatisering
             - **Zapier of Make** voor workflow-automatisering
-            """
-        )
+            """)
         st.subheader("Invoerstatus")
         st.write("Software:", st.session_state.get('software', '—'))
         st.write("Knelpunten:", ", ".join(st.session_state.get('knelpunten', [])) or "—")
         st.write("Toelichting:", st.session_state.get('toelichting', '—') or "—")
-        # Leesbare weergave van de weging
-        weging_dict = st.session_state.get('weging', {})
-        if weging_dict:
-            for k, v in weging_dict.items():
-                st.write(f"{k}: {v}")
+        w = st.session_state.get('weging', {})
+        if w:
+            st.write("Weging:")
+            for k, v in w.items():
+                st.write(f"- {k}: {v}")
         else:
             st.write("Weging: —")
 
-# --- Pagina: Keuzeadvies ---
 elif menu == "Keuzeadvies":
     st.title("Keuzeadvies voor jouw AI-transitie")
     st.write("Kies de aanpak die het beste past bij jouw situatie.")
@@ -239,7 +234,6 @@ elif menu == "Keuzeadvies":
     else:
         st.info("Combinatie: zelf grip + hulp bij technische of complexe onderdelen.")
 
-    # Validatie vóór genereren
     missing = []
     if not st.session_state.get('software'):
         missing.append("software")
@@ -248,7 +242,7 @@ elif menu == "Keuzeadvies":
     if missing:
         st.warning("Ontbrekende invoer: " + ", ".join(missing) + ". Ga terug naar het Dashboard.")
 
-    if st.button("Genereer Diagnose & Transitievoorstel (AI/stub)"):
+    if st.button("Genereer Diagnose & Transitievoorstel (AI)"):
         if missing:
             st.error("Kan geen advies genereren; vul eerst de ontbrekende velden in op het Dashboard.")
         else:
@@ -264,7 +258,6 @@ elif menu == "Keuzeadvies":
                     temperature=st.session_state.get('temperature', 0.4),
                 )
             else:
-                # Gratis/stub modus: toon de samengestelde opdracht i.p.v. AI-output
                 _kn = st.session_state.get('knelpunten', [])
                 _wg = st.session_state.get('weging', {})
                 beschrijving = "\n".join([f"- {k} (weging {_wg.get(k, '—')})" for k in _kn]) if _kn else "- (geen geselecteerde knelpunten)"
@@ -321,27 +314,82 @@ elif menu == "Keuzeadvies":
         st.write(f"Geschatte output tokens: ~{out_tok}")
         st.caption("Let op: dit is een ruwe schatting. Werkelijke aantallen kunnen afwijken.")
 
-# --- Pagina: Transitieplanner ---
+elif menu == "Chatbot":
+    st.title("Chatbot – Project Kantoor in AI-Transitie")
+
+    # Toon historie
+    for msg in st.session_state["chat_history"]:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])    
+
+    # Invoer
+    prompt = st.chat_input("Stel je vraag over software, routines of AI‑kansen…")
+    if prompt:
+        # Voeg userbericht toe en toon het
+        st.session_state["chat_history"].append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        use_ai = st.session_state.get("ai_enabled", True) and bool(get_openai_api_key()) and _OPENAI_AVAILABLE
+        if use_ai:
+            system_msg = (
+                "Je bent een nuchtere, praktische AI-coach voor administratie- en belastingadvieskantoren. "
+                "Geef korte, concrete antwoorden in helder Nederlands; vermijd jargon; noem waar zinvol stappen/voorbeelden. "
+                "Houd rekening met software als Exact, Nextens, SnelStart, AFAS, Twinfield, Multivers, Minox."
+            )
+            try:
+                from openai import OpenAI
+                client = OpenAI(api_key=get_openai_api_key())
+                # Beperk context voor kostenbeheersing
+                ctx = st.session_state["chat_history"][-8:]
+                resp = client.chat.completions.create(
+                    model=st.session_state.get("model", "gpt-4o-mini"),
+                    temperature=st.session_state.get("temperature", 0.4),
+                    messages=[{"role": "system", "content": system_msg}] + ctx,
+                    max_tokens=600,
+                )
+                answer = resp.choices[0].message.content.strip()
+            except Exception as e:
+                answer = f"❌ Fout bij genereren van antwoord: {e}"
+        else:
+            # Gratis/stub modus: hulptekst + echo
+            answer = (
+                "🔒 AI staat uit of er is geen API‑key.
+
+"
+                "Ik kan je vraag wel structureren. Probeer bijvoorbeeld:
+"
+                "- Wat is de snelste manier om [knelpunt] te verminderen in [software]?
+"
+                "- Geef een stappenplan voor [proces] met een quick win.
+
+"
+                f"Je vroeg: **{prompt}**"
+            )
+
+        with st.chat_message("assistant"):
+            st.markdown(answer)
+        st.session_state["chat_history"].append({"role": "assistant", "content": answer})
+
+    st.caption("Tip: gebruik de resetknop in de sidebar om het gesprek te wissen.")
+
 elif menu == "Transitieplanner":
     st.title("Transitieplanner")
     st.info("Deze sectie wordt in de volgende versie uitgewerkt.")
 
-# --- Pagina: Proof-of-Concepts ---
 elif menu == "Proof-of-Concepts":
     st.title("Proof-of-Concepts")
     st.info("Hier komen uitgewerkte voorbeelden met instructies.")
 
-# --- Pagina: Feedback ---
 elif menu == "Feedback":
     st.title("Feedback")
     feedback = st.text_area("Wat vond je van deze toolkit?")
     if st.button("Verzenden"):
         st.success("Bedankt voor je feedback!")
 
-# --- Pagina: Handleiding ---
 elif menu == "Handleiding":
     st.title("Handleiding voor installatie en gebruik")
-    st.markdown(r"""
+    st.markdown("""
         ### 1. Waar plaats je de bestanden?
         Plaats de bestanden **niet in C:\\Python313** maar in een eigen map, bijvoorbeeld:
         ```
@@ -367,22 +415,3 @@ elif menu == "Handleiding":
         ```
         **Optie B (permanent voor jouw account):**
         ```powershell
-        setx OPENAI_API_KEY "sk-...jouw_key..."
-        # Open hierna een nieuw PowerShell-venster
-        ```
-        **Optie C (aanbevolen voor meerdere gebruikers / Cloud):**
-        Maak een bestand `.streamlit/secrets.toml` met:
-        ```toml
-        OPENAI_API_KEY = "sk-...jouw_key..."
-        ```
-
-        ### 5. Start de applicatie
-        ```powershell
-        streamlit run app.py
-        ```
-
-        #### Streamlit Cloud
-        - Push je project naar GitHub
-        - Deploy **New app** → kies `app.py`
-        - Voeg in **Secrets** de sleutel toe: `OPENAI_API_KEY`
-        """)
